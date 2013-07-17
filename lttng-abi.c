@@ -236,6 +236,9 @@ long lttng_abi_add_context(struct file *file,
 		return lttng_add_hostname_to_ctx(ctx);
 	case LTTNG_KERNEL_CONTEXT_CPU_ID:
 		return lttng_add_cpu_id_to_ctx(ctx);
+	case LTTNG_KERNEL_CONTEXT_CALLSTACK_KERNEL:
+	case LTTNG_KERNEL_CONTEXT_CALLSTACK_USER:
+		return lttng_add_callstack_to_ctx(ctx, context_param->ctx);
 	default:
 		return -EINVAL;
 	}
