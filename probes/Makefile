@@ -270,6 +270,8 @@ ifneq ($(CONFIG_DYNAMIC_FTRACE),)
 obj-m += lttng-ftrace.o
 endif
 
+obj-m += lttng-probe-core.o
+
 endif
 
 obj-m += lttng-test.o
