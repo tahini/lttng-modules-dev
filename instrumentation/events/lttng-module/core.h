@@ -14,14 +14,15 @@
 LTTNG_TRACEPOINT_EVENT(core_critical_timing_hit,
 
 	TP_PROTO(unsigned long ip, unsigned long parent_ip,
-			unsigned long flags, int preempt_cnt,
-			cycles_t delta_ns),
+			unsigned long start_ip, unsigned long flags,
+			int preempt_cnt, cycles_t delta_ns),
 
-	TP_ARGS(ip, parent_ip, flags, preempt_cnt, delta_ns),
+	TP_ARGS(ip, parent_ip, start_ip, flags, preempt_cnt, delta_ns),
 
 	TP_FIELDS(
 		ctf_integer_hex(unsigned long, ip, ip)
 		ctf_integer_hex(unsigned long, parent_ip, parent_ip)
+		ctf_integer_hex(unsigned long, start_ip, start_ip)
 		ctf_integer(cycles_t, delta_ns, delta_ns)
 		ctf_integer(uint8_t, irqs_disabled,
 			!!(raw_irqs_disabled_flags(flags)))
