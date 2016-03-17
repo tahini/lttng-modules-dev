@@ -368,9 +368,15 @@ static void __event_probe__##_name(void *__data);
 	__event_len += lib_ring_buffer_align(__event_len, lttng_alignof(_length_type)); \
 	__event_len += sizeof(_length_type);				       \
 	__event_len += lib_ring_buffer_align(__event_len, lttng_alignof(_type)); \
-	__dynamic_len[__dynamic_len_idx] = (_src_length);		       \
-	__event_len += sizeof(_type) * __dynamic_len[__dynamic_len_idx];       \
-	__dynamic_len_idx++;
+	{										\
+		size_t __seqlen = (_src_length);					\
+											\
+		if (unlikely(++this_cpu_ptr(&lttng_dynamic_len_stack)->offset >= LTTNG_DYNAMIC_LEN_STACK_SIZE)) \
+			goto error;							\
+		barrier();	/* reserve before use. */				\
+		this_cpu_ptr(&lttng_dynamic_len_stack)->stack[this_cpu_ptr(&lttng_dynamic_len_stack)->offset - 1] = __seqlen; \
+		__event_len += sizeof(_type) * __seqlen;				\
+	}
 
 #undef _ctf_sequence_bitfield
 #define _ctf_sequence_bitfield(_type, _item, _src,		\
@@ -385,12 +391,16 @@ static void __event_probe__##_name(void *__data);
  */
 #undef _ctf_string
 #define _ctf_string(_item, _src, _user, _nowrite)			       \
-	if (_user)							       \
-		__event_len += __dynamic_len[__dynamic_len_idx++] =	       \
+	if (unlikely(++this_cpu_ptr(&lttng_dynamic_len_stack)->offset >= LTTNG_DYNAMIC_LEN_STACK_SIZE)) \
+		goto error;						       \
+	barrier();	/* reserve before use. */			       \
+	if (_user) {							       \
+		__event_len += this_cpu_ptr(&lttng_dynamic_len_stack)->stack[this_cpu_ptr(&lttng_dynamic_len_stack)->offset - 1] = \
 			max_t(size_t, lttng_strlen_user_inatomic(_src), 1);    \
-	else								       \
-		__event_len += __dynamic_len[__dynamic_len_idx++] =	       \
-			strlen(_src) + 1;
+	} else {							       \
+		__event_len += this_cpu_ptr(&lttng_dynamic_len_stack)->stack[this_cpu_ptr(&lttng_dynamic_len_stack)->offset - 1] = \
+			strlen(_src) + 1;				       \
+	}
 
 #undef TP_PROTO
 #define TP_PROTO(...)	__VA_ARGS__
@@ -403,8 +413,7 @@ static void __event_probe__##_name(void *__data);
 
 #undef LTTNG_TRACEPOINT_EVENT_CLASS_CODE
 #define LTTNG_TRACEPOINT_EVENT_CLASS_CODE(_name, _proto, _args, _locvar, _code_pre, _fields, _code_post) \
-static inline size_t __event_get_size__##_name(size_t *__dynamic_len,	      \
-		void *__tp_locvar, _proto)				      \
+static inline ssize_t __event_get_size__##_name(void *__tp_locvar, _proto)     \
 {									      \
 	size_t __event_len = 0;						      \
 	unsigned int __dynamic_len_idx __attribute__((unused)) = 0;	      \
@@ -412,12 +421,15 @@ static inline size_t __event_get_size__##_name(size_t *__dynamic_len,	      \
 									      \
 	_fields								      \
 	return __event_len;						      \
+									      \
+error:									      \
+	__attribute__((unused));					      \
+	return -1;							      \
 }
 
 #undef LTTNG_TRACEPOINT_EVENT_CLASS_CODE_NOARGS
 #define LTTNG_TRACEPOINT_EVENT_CLASS_CODE_NOARGS(_name, _locvar, _code_pre, _fields, _code_post) \
-static inline size_t __event_get_size__##_name(size_t *__dynamic_len,	      \
-		void *__tp_locvar)					      \
+static inline ssize_t __event_get_size__##_name(void *__tp_locvar)	      \
 {									      \
 	size_t __event_len = 0;						      \
 	unsigned int __dynamic_len_idx __attribute__((unused)) = 0;	      \
@@ -425,6 +437,10 @@ static inline size_t __event_get_size__##_name(size_t *__dynamic_len,	      \
 									      \
 	_fields								      \
 	return __event_len;						      \
+									      \
+error:									      \
+	__attribute__((unused));					      \
+	return -1;							      \
 }
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
@@ -769,7 +785,7 @@ static inline size_t __event_get_align__##_name(void *__tp_locvar)	      \
 #define _ctf_sequence_encoded(_type, _item, _src, _length_type,		\
 			_src_length, _encoding, _byte_order, _base, _user, _nowrite) \
 	{								\
-		_length_type __tmpl = __stackvar.__dynamic_len[__dynamic_len_idx]; \
+		_length_type __tmpl = this_cpu_ptr(&lttng_dynamic_len_stack)->stack[__dynamic_len_idx]; \
 		lib_ring_buffer_align_ctx(&__ctx, lttng_alignof(_length_type));\
 		__chan->ops->event_write(&__ctx, &__tmpl, sizeof(_length_type));\
 	}								\
@@ -788,7 +804,7 @@ static inline size_t __event_get_align__##_name(void *__tp_locvar)	      \
 			_length_type, _src_length,		\
 			_user, _nowrite)			\
 	{								\
-		_length_type __tmpl = __stackvar.__dynamic_len[__dynamic_len_idx] * sizeof(_type) * CHAR_BIT; \
+		_length_type __tmpl = this_cpu_ptr(&lttng_dynamic_len_stack)->stack[__dynamic_len_idx] * sizeof(_type) * CHAR_BIT; \
 		lib_ring_buffer_align_ctx(&__ctx, lttng_alignof(_length_type));\
 		__chan->ops->event_write(&__ctx, &__tmpl, sizeof(_length_type));\
 	}								\
@@ -809,7 +825,7 @@ static inline size_t __event_get_align__##_name(void *__tp_locvar)	      \
 			_length_type, _src_length,		\
 			_user, _nowrite)			\
 	{							\
-		_length_type __tmpl = __stackvar.__dynamic_len[__dynamic_len_idx] * sizeof(_type) * CHAR_BIT; \
+		_length_type __tmpl = this_cpu_ptr(&lttng_dynamic_len_stack)->stack[__dynamic_len_idx] * sizeof(_type) * CHAR_BIT; \
 		lib_ring_buffer_align_ctx(&__ctx, lttng_alignof(_length_type));\
 		__chan->ops->event_write(&__ctx, &__tmpl, sizeof(_length_type));\
 	}								\
@@ -860,7 +876,7 @@ static inline size_t __event_get_align__##_name(void *__tp_locvar)	      \
 
 /* Beware: this get len actually consumes the len value */
 #undef __get_dynamic_len
-#define __get_dynamic_len(field)	__stackvar.__dynamic_len[__dynamic_len_idx++]
+#define __get_dynamic_len(field)	this_cpu_ptr(&lttng_dynamic_len_stack)->stack[__dynamic_len_idx++]
 
 #undef TP_PROTO
 #define TP_PROTO(...)	__VA_ARGS__
@@ -911,10 +927,11 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 	struct lttng_channel *__chan = __event->chan;			      \
 	struct lttng_session *__session = __chan->session;		      \
 	struct lib_ring_buffer_ctx __ctx;				      \
-	size_t __event_len, __event_align;				      \
-	size_t __dynamic_len_idx __attribute__((unused)) = 0;		      \
+	ssize_t __event_len;						      \
+	size_t __event_align;						      \
+	size_t __orig_dynamic_len_offset, __dynamic_len_idx;		      \
 	union {								      \
-		size_t __dynamic_len[ARRAY_SIZE(__event_fields___##_name)];   \
+		size_t __dynamic_len_removed[ARRAY_SIZE(__event_fields___##_name)];   \
 		char __filter_stack_data[2 * sizeof(unsigned long) * ARRAY_SIZE(__event_fields___##_name)]; \
 	} __stackvar;							      \
 	int __ret;							      \
@@ -934,6 +951,8 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 	__lpf = lttng_rcu_dereference(__session->pid_tracker);		      \
 	if (__lpf && likely(!lttng_pid_tracker_lookup(__lpf, current->pid)))  \
 		return;							      \
+	__orig_dynamic_len_offset = this_cpu_ptr(&lttng_dynamic_len_stack)->offset; \
+	__dynamic_len_idx = __orig_dynamic_len_offset;			      \
 	_code_pre							      \
 	if (unlikely(!list_empty(&__event->bytecode_runtime_head))) {	      \
 		struct lttng_bytecode_runtime *bc_runtime;		      \
@@ -949,8 +968,11 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 		if (likely(!__filter_record))				      \
 			goto __post;					      \
 	}								      \
-	__event_len = __event_get_size__##_name(__stackvar.__dynamic_len,     \
-				tp_locvar, _args);			      \
+	__event_len = __event_get_size__##_name(tp_locvar, _args);	      \
+	if (unlikely(__event_len < 0)) {				      \
+		lib_ring_buffer_lost_event_too_big(__chan->chan);	      \
+		goto __post;						      \
+	}								      \
 	__event_align = __event_get_align__##_name(tp_locvar, _args);         \
 	lib_ring_buffer_ctx_init(&__ctx, __chan->chan, &__lttng_probe_ctx, __event_len,  \
 				 __event_align, -1);			      \
@@ -961,6 +983,8 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 	__chan->ops->event_commit(&__ctx);				      \
 __post:									      \
 	_code_post							      \
+	barrier();	/* use before un-reserve. */			      \
+	this_cpu_ptr(&lttng_dynamic_len_stack)->offset = __orig_dynamic_len_offset; \
 	return;								      \
 }
 
@@ -977,10 +1001,11 @@ static void __event_probe__##_name(void *__data)			      \
 	struct lttng_channel *__chan = __event->chan;			      \
 	struct lttng_session *__session = __chan->session;		      \
 	struct lib_ring_buffer_ctx __ctx;				      \
-	size_t __event_len, __event_align;				      \
-	size_t __dynamic_len_idx __attribute__((unused)) = 0;		      \
+	ssize_t __event_len;						      \
+	size_t __event_align;						      \
+	size_t __orig_dynamic_len_offset, __dynamic_len_idx;		      \
 	union {								      \
-		size_t __dynamic_len[ARRAY_SIZE(__event_fields___##_name)];   \
+		size_t __dynamic_len_removed[ARRAY_SIZE(__event_fields___##_name)];   \
 		char __filter_stack_data[2 * sizeof(unsigned long) * ARRAY_SIZE(__event_fields___##_name)]; \
 	} __stackvar;							      \
 	int __ret;							      \
@@ -1000,6 +1025,8 @@ static void __event_probe__##_name(void *__data)			      \
 	__lpf = lttng_rcu_dereference(__session->pid_tracker);		      \
 	if (__lpf && likely(!lttng_pid_tracker_lookup(__lpf, current->pid)))  \
 		return;							      \
+	__orig_dynamic_len_offset = this_cpu_ptr(&lttng_dynamic_len_stack)->offset; \
+	__dynamic_len_idx = __orig_dynamic_len_offset;			      \
 	_code_pre							      \
 	if (unlikely(!list_empty(&__event->bytecode_runtime_head))) {	      \
 		struct lttng_bytecode_runtime *bc_runtime;		      \
@@ -1015,7 +1042,11 @@ static void __event_probe__##_name(void *__data)			      \
 		if (likely(!__filter_record))				      \
 			goto __post;					      \
 	}								      \
-	__event_len = __event_get_size__##_name(__stackvar.__dynamic_len, tp_locvar); \
+	__event_len = __event_get_size__##_name(tp_locvar);		      \
+	if (unlikely(__event_len < 0)) {				      \
+		lib_ring_buffer_lost_event_too_big(__chan->chan);	      \
+		goto __post;						      \
+	}								      \
 	__event_align = __event_get_align__##_name(tp_locvar);		      \
 	lib_ring_buffer_ctx_init(&__ctx, __chan->chan, &__lttng_probe_ctx, __event_len,  \
 				 __event_align, -1);			      \
@@ -1026,6 +1057,8 @@ static void __event_probe__##_name(void *__data)			      \
 	__chan->ops->event_commit(&__ctx);				      \
 __post:									      \
 	_code_post							      \
+	barrier();	/* use before un-reserve. */			      \
+	this_cpu_ptr(&lttng_dynamic_len_stack)->offset = __orig_dynamic_len_offset; \
 	return;								      \
 }
 
