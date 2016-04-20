@@ -102,6 +102,9 @@ LTTNG_TRACEPOINT_EVENT_CODE(lttng_logger,
 				}
 			)
 		)
+		ctf_user_integer(char, userchar, text[0])
+		ctf_user_array_text(char, userchararray, text, 3)
+		ctf_user_sequence_text(char, usercharseq, text, size_t, len)
 	),
 
 	TP_code_post()
