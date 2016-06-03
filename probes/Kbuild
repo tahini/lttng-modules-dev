@@ -6,6 +6,7 @@ ccflags-y += -I$(TOP_LTTNG_MODULES_DIR)
 
 obj-$(CONFIG_LTTNG) += lttng-probe-sched.o
 obj-$(CONFIG_LTTNG) += lttng-probe-irq.o
+obj-$(CONFIG_LTTNG) += lttng-probe-rseq.o
 obj-$(CONFIG_LTTNG) += lttng-probe-timer.o
 obj-$(CONFIG_LTTNG) += lttng-probe-kmem.o
 obj-$(CONFIG_LTTNG) += lttng-probe-module.o
