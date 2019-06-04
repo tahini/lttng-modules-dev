@@ -12,6 +12,7 @@ obj-$(CONFIG_LTTNG) += lttng-probe-timer.o
 obj-$(CONFIG_LTTNG) += lttng-probe-kmem.o
 obj-$(CONFIG_LTTNG) += lttng-probe-module.o
 obj-$(CONFIG_LTTNG) += lttng-probe-power.o
+obj-$(CONFIG_LTTNG) += lttng-probe-kallsyms.o
 obj-$(CONFIG_LTTNG) += lttng-probe-statedump.o
 
 ifneq ($(CONFIG_NET_9P),)
