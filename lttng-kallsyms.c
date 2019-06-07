@@ -52,6 +52,84 @@ int lttng_enumerate_kernel_symbols(struct lttng_session *session) {
 }
 EXPORT_SYMBOL_GPL(lttng_enumerate_kernel_symbols);
 
+#ifdef CONFIG_MODULES
+
+static
+int lttng_kallsyms_module_coming(struct tp_module *tp_mod)
+{
+	printk("Just saw a module loading in lttng %s", tp_mod->mod->name);
+	return 0;
+}
+
+static
+int lttng_kallsyms_module_going(struct tp_module *tp_mod)
+{
+  printk("Just saw a module going in lttng %s", tp_mod->mod->name);
+	return 0;
+}
+
+static
+int lttng_kallsyms_notify(struct notifier_block *self,
+		unsigned long val, void *data)
+{
+	struct tp_module *tp_mod = data;
+	int ret = 0;
+
+  printk("got a notification '%d'", val);
+	switch (val) {
+	case MODULE_STATE_COMING:
+		ret = lttng_kallsyms_module_coming(tp_mod);
+		break;
+	case MODULE_STATE_GOING:
+		ret = lttng_kallsyms_module_going(tp_mod);
+		break;
+	default:
+		break;
+	}
+	return ret;
+}
+
+static
+struct notifier_block lttng_kallsyms_notifier = {
+	.notifier_call = lttng_kallsyms_notify,
+	.priority = 0,
+};
+
+static
+int lttng_kallsyms_module_init(void)
+{
+  printk("hello kallsyms");
+	return register_tracepoint_module_notifier(&lttng_kallsyms_notifier);
+}
+
+static
+void lttng_kallsyms_module_exit(void)
+{
+  printk("bye kallsyms");
+	WARN_ON(unregister_tracepoint_module_notifier(&lttng_kallsyms_notifier));
+}
+
+#else /* #ifdef CONFIG_MODULES */
+
+static
+int lttng_kallsyms_module_init(void)
+{
+  printk("hello kallsyms but no");
+	return 0;
+}
+
+static
+void lttng_kallsyms_module_exit(void)
+{
+  printk("hello kallsyms but no");
+}
+
+#endif /* #else #ifdef CONFIG_MODULES */
+
+module_init(lttng_kallsyms_module_init);
+
+module_exit(lttng_kallsyms_module_exit);
+
 MODULE_LICENSE("GPL and additional rights");
 MODULE_AUTHOR("Geneviève Bastien <gbastien@versatic.net");
 MODULE_DESCRIPTION("LTTng kallsyms");
