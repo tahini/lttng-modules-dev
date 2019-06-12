@@ -59,6 +59,8 @@ const char *lttng_cs_ctx_mode_name(enum lttng_cs_ctx_modes mode)
 	return cs_types[mode].name;
 }
 
+#ifdef CONFIG_KALLSYMS
+
 static
 int init_type(enum lttng_cs_ctx_modes mode)
 {
@@ -75,6 +77,16 @@ int init_type(enum lttng_cs_ctx_modes mode)
 	cs_types[mode].save_func = (void *) func;
 	return 0;
 }
+
+#else /* CONFIG_KALLSYMS */
+
+static inline
+int init_type(enum lttng_cs_ctx_modes mode)
+{
+	return 0;
+}
+
+#endif /* CONFIG_KALLSYMS */
 
 static
 void lttng_cs_set_init(struct lttng_cs __percpu *cs_set)

@@ -17,7 +17,6 @@
  */
 #define LTTNG_PACKAGE_BUILD
 #define CREATE_TRACE_POINTS
-#define TP_SESSION_CHECK
 #define TRACE_INCLUDE_PATH instrumentation/events/lttng-module
 #define TRACE_INCLUDE_FILE lttng-kallsyms
 

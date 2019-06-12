@@ -18,9 +18,11 @@
 #include <instrumentation/events/lttng-module/lttng-kallsyms.h>
 
 DEFINE_TRACE(lttng_kallsyms_kernel_symbol);
+DEFINE_TRACE(lttng_kallsyms_new_module_symbol);
+DEFINE_TRACE(lttng_kallsyms_module_unloaded);
 
 /*
- * Store the symbols
+ * Trace the kernel symbols from a given module
  *
  * data: The lttng lttng_session
  * symbol_name: The function name this symbol resolves to
@@ -29,21 +31,23 @@ DEFINE_TRACE(lttng_kallsyms_kernel_symbol);
  */
 static
 int _lttng_one_symbol_received(void * data, const char * symbol_name,
-              struct module * module, unsigned long symbol_addr) {
+              struct module * module, unsigned long symbol_addr)
+{
     struct lttng_session *session = data;
 
     if (module) {
         trace_lttng_kallsyms_kernel_symbol(session, symbol_addr,
             symbol_name, module->name);
     } else {
-      trace_lttng_kallsyms_kernel_symbol(session, symbol_addr,
+        trace_lttng_kallsyms_kernel_symbol(session, symbol_addr,
           symbol_name, "");
     }
 
     return 0;
 }
 
-int lttng_enumerate_kernel_symbols(struct lttng_session *session) {
+int lttng_enumerate_kernel_symbols(struct lttng_session *session)
+{
   int ret = 0;
 
   ret = kallsyms_on_each_symbol(_lttng_one_symbol_received, (void *) session);
@@ -54,17 +58,42 @@ EXPORT_SYMBOL_GPL(lttng_enumerate_kernel_symbols);
 
 #ifdef CONFIG_MODULES
 
+/*
+ * Trace the symbols coming from a specific module
+ *
+ * data: The new module for which we want the symbols
+ * symbol_name: The function name this symbol resolves to
+ * module: The module containing this symbol. Can be NULL
+ * symbol_addr: The symbol address
+ */
 static
-int lttng_kallsyms_module_coming(struct tp_module *tp_mod)
+int _lttng_trace_module_symbol(void * data, const char * symbol_name,
+              struct module * module, unsigned long symbol_addr)
 {
-	printk("Just saw a module loading in lttng %s", tp_mod->mod->name);
-	return 0;
+  struct module *mod = data;
+
+  // Trace the symbols from the new module
+  if (mod == module) {
+    trace_lttng_kallsyms_new_module_symbol(symbol_addr, symbol_name, mod->name);
+  }
+  return 0;
 }
 
 static
-int lttng_kallsyms_module_going(struct tp_module *tp_mod)
+int lttng_kallsyms_module_coming(struct module *mod)
 {
-  printk("Just saw a module going in lttng %s", tp_mod->mod->name);
+  int ret = 0;
+
+
+  ret = kallsyms_on_each_symbol(_lttng_trace_module_symbol, (void *) mod);
+
+  return ret;
+}
+
+static
+int lttng_kallsyms_module_going(struct module *mod)
+{
+  trace_lttng_kallsyms_module_unloaded(mod->name);
 	return 0;
 }
 
@@ -72,16 +101,15 @@ static
 int lttng_kallsyms_notify(struct notifier_block *self,
 		unsigned long val, void *data)
 {
-	struct tp_module *tp_mod = data;
+	struct module *mod = data;
 	int ret = 0;
 
-  printk("got a notification '%d'", val);
 	switch (val) {
 	case MODULE_STATE_COMING:
-		ret = lttng_kallsyms_module_coming(tp_mod);
+		ret = lttng_kallsyms_module_coming(mod);
 		break;
 	case MODULE_STATE_GOING:
-		ret = lttng_kallsyms_module_going(tp_mod);
+		ret = lttng_kallsyms_module_going(mod);
 		break;
 	default:
 		break;
@@ -98,15 +126,13 @@ struct notifier_block lttng_kallsyms_notifier = {
 static
 int lttng_kallsyms_module_init(void)
 {
-  printk("hello kallsyms");
-	return register_tracepoint_module_notifier(&lttng_kallsyms_notifier);
+  return register_module_notifier(&lttng_kallsyms_notifier);
 }
 
 static
 void lttng_kallsyms_module_exit(void)
 {
-  printk("bye kallsyms");
-	WARN_ON(unregister_tracepoint_module_notifier(&lttng_kallsyms_notifier));
+	WARN_ON(unregister_module_notifier(&lttng_kallsyms_notifier));
 }
 
 #else /* #ifdef CONFIG_MODULES */
@@ -114,14 +140,13 @@ void lttng_kallsyms_module_exit(void)
 static
 int lttng_kallsyms_module_init(void)
 {
-  printk("hello kallsyms but no");
 	return 0;
 }
 
 static
 void lttng_kallsyms_module_exit(void)
 {
-  printk("hello kallsyms but no");
+
 }
 
 #endif /* #else #ifdef CONFIG_MODULES */

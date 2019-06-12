@@ -10,6 +10,17 @@
 
 #include <lttng-events.h>
 
+#ifdef CONFIG_KALLSYMS
+
 int lttng_enumerate_kernel_symbols(struct lttng_session *session);
+
+#else /* !CONFIG_KALLSYMS */
+
+static inline int lttng_enumerate_kernel_symbols(struct lttng_session *session)
+{
+  return 0;
+}
+
+#endif /* !CONFIG_KALLSYMS */
 
 #endif /* _LTTNG_KALLSYMS_H */
